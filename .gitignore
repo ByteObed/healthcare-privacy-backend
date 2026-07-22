@@ -1,0 +1,9 @@
+﻿venv-drf/
+__pycache__/
+*.pyc
+.env
+db.sqlite3
+staticfiles/
+media/
+.vscode/
+*.log

@@ -85,6 +85,7 @@ class SendEncryptedRecordView(APIView):
             "name": patient.name,
             "age": patient.age,
             "gender": patient.gender,
+            "phone_number": patient.phone_number,
             "diagnosis": patient.diagnosis,
             "medication": patient.medication,
         }
@@ -118,6 +119,14 @@ class SendEncryptedRecordView(APIView):
             SharedEncryptedRecordSerializer(shared_record).data,
             status=status.HTTP_201_CREATED
         )
+
+class SentEncryptedRecordsListView(generics.ListAPIView):
+    """Hospital A views encrypted records it has sent to other organisations."""
+    serializer_class = SharedEncryptedRecordSerializer
+    permission_classes = [permissions.IsAuthenticated, IsOrganisationUser]
+
+    def get_queryset(self):
+        return SharedEncryptedRecord.objects.filter(sender=self.request.user.organisation)        
 
 
 class ReceivedEncryptedRecordsListView(generics.ListAPIView):
@@ -172,6 +181,7 @@ class DecryptRecordView(APIView):
             name=decrypted_data['name'],
             age=decrypted_data['age'],
             gender=decrypted_data['gender'],
+            phone_number=decrypted_data['phone_number'],
             diagnosis=decrypted_data['diagnosis'],
             medication=decrypted_data['medication'],
         )

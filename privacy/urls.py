@@ -4,6 +4,7 @@ from .views import (
     PrivacyResultListView,
     PrivacyComparisonView,
     SendEncryptedRecordView,
+    SentEncryptedRecordsListView,
     SentAnonymizedDatasetsListView,
     ReceivedEncryptedRecordsListView,
     RetrieveEncryptionKeyView,
@@ -20,6 +21,7 @@ urlpatterns = [
 
     # Encryption
     path('encryption/send/', SendEncryptedRecordView.as_view(), name='send-encrypted-record'),
+    path('encryption/sent/', SentEncryptedRecordsListView.as_view(), name='encryption-sent'),
     path('encryption/received/', ReceivedEncryptedRecordsListView.as_view(), name='received-encrypted-records'),
     path('encryption/<int:pk>/key/', RetrieveEncryptionKeyView.as_view(), name='retrieve-encryption-key'),
     path('encryption/<int:pk>/decrypt/', DecryptRecordView.as_view(), name='decrypt-record'),

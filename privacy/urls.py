@@ -9,6 +9,7 @@ from .views import (
     ReceivedEncryptedRecordsListView,
     RetrieveEncryptionKeyView,
     DecryptRecordView,
+    RegenerateEncryptionKeyView,
     ExportAnonymizedDatasetView,
     ReceivedAnonymizedDatasetsListView,
     MaskedPatientListView,
@@ -25,6 +26,7 @@ urlpatterns = [
     path('encryption/received/', ReceivedEncryptedRecordsListView.as_view(), name='received-encrypted-records'),
     path('encryption/<int:pk>/key/', RetrieveEncryptionKeyView.as_view(), name='retrieve-encryption-key'),
     path('encryption/<int:pk>/decrypt/', DecryptRecordView.as_view(), name='decrypt-record'),
+    path('encryption/<int:pk>/regenerate-key/', RegenerateEncryptionKeyView.as_view(), name='encryption-regenerate-key'),
 
     # Anonymization
     path('anonymization/export/', ExportAnonymizedDatasetView.as_view(), name='export-anonymized-dataset'),

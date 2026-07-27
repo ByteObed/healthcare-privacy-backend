@@ -188,6 +188,58 @@ class DecryptRecordView(APIView):
 
         return Response(SharedEncryptedRecordSerializer(shared_record).data, status=status.HTTP_200_OK)
 
+class RegenerateEncryptionKeyView(APIView):
+    """Sender regenerates a fresh key for a record whose key was retrieved but never used to decrypt."""
+    permission_classes = [permissions.IsAuthenticated, IsOrganisationUser]
+
+    def post(self, request, pk):
+        try:
+            shared_record = SharedEncryptedRecord.objects.get(
+                pk=pk, sender=request.user.organisation
+            )
+        except SharedEncryptedRecord.DoesNotExist:
+            return Response({"error": "Record not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if shared_record.is_decrypted:
+            return Response(
+                {"error": "This record has already been decrypted."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            patient = Patient.objects.get(
+                patient_id=shared_record.patient_id_reference,
+                organisation=request.user.organisation
+            )
+        except Patient.DoesNotExist:
+            return Response(
+                {"error": "Original patient record no longer exists."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        patient_data = {
+            "patient_id": patient.patient_id,
+            "name": patient.name,
+            "age": patient.age,
+            "gender": patient.gender,
+            "phone_number": patient.phone_number,
+            "diagnosis": patient.diagnosis,
+            "medication": patient.medication,
+        }
+
+        new_key = generate_fernet_key()
+        new_encrypted_payload = encrypt_patient_record(patient_data, new_key)
+
+        shared_record.encrypted_payload = new_encrypted_payload
+        shared_record.encryption_key = new_key
+        shared_record.key_retrieved = False
+        shared_record.save()
+
+        return Response(
+            SharedEncryptedRecordSerializer(shared_record).data,
+            status=status.HTTP_200_OK
+        )        
+
 
 # --- ANONYMIZATION, MASKING, DIFFERENTIAL PRIVACY (placeholders, built next) ---
 
@@ -312,17 +364,7 @@ class MaskedPatientListView(APIView):
 
         processing_time = time.time() - start_time
 
-        # Log for the comparison dashboard
-        PrivacyResult.objects.create(
-            organisation=request.user.organisation,
-            technique='masking',
-            original_record_count=patients.count(),
-            processed_record_count=len(masked_data),
-            processing_time_seconds=processing_time,
-            utility_score=0.9,  # High utility — structure and most data preserved, only specific fields hidden
-            privacy_score=0.5,  # Weaker privacy than encryption/anonymization — pattern is guessable, partially reversible by inference
-            output_sample={"sample": masked_data[:2]},
-        )
+       
 
         serializer = MaskedPatientSerializer(masked_data, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)

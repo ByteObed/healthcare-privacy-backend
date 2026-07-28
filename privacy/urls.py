@@ -13,6 +13,7 @@ from .views import (
     ExportAnonymizedDatasetView,
     ReceivedAnonymizedDatasetsListView,
     MaskedPatientListView,
+    ApplyMaskingLogView,
     DifferentialPrivacyQueryView,
 )
 
@@ -35,6 +36,7 @@ urlpatterns = [
 
     # Masking
     path('masking/view/', MaskedPatientListView.as_view(), name='masked-patient-list'),
+    path('masking/apply/', ApplyMaskingLogView.as_view(), name='apply-masking-log'),
 
     # Differential Privacy
     path('differential-privacy/query/', DifferentialPrivacyQueryView.as_view(), name='differential-privacy-query'),

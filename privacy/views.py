@@ -369,6 +369,45 @@ class MaskedPatientListView(APIView):
         serializer = MaskedPatientSerializer(masked_data, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+class ApplyMaskingLogView(APIView):
+    """Explicitly apply masking to current raw patient data and log ONE comparison result."""
+    permission_classes = [permissions.IsAuthenticated, IsOrganisationUser]
+
+    def post(self, request):
+        start_time = time.time()
+
+        patients = Patient.objects.filter(organisation=request.user.organisation)
+
+        if not patients.exists():
+            return Response({"error": "No patient data available to mask. Add or import patients first."}, status=status.HTTP_404_NOT_FOUND)
+
+        masked_data = []
+        for p in patients:
+            masked_data.append({
+                "patient_id": mask_patient_id(p.patient_id),
+                "name": mask_name(p.name),
+                "diagnosis": p.diagnosis,
+                "masked_phone": mask_phone_number(p.phone_number),
+            })
+
+        processing_time = time.time() - start_time
+
+        result = PrivacyResult.objects.create(
+            organisation=request.user.organisation,
+            technique='masking',
+            original_record_count=patients.count(),
+            processed_record_count=len(masked_data),
+            processing_time_seconds=processing_time,
+            utility_score=0.9,
+            privacy_score=0.5,
+            output_sample={"sample": masked_data[:2]},
+        )
+
+        return Response({
+            "message": f"Masking applied to {len(masked_data)} patient records and logged for comparison.",
+            "result_id": result.id,
+        }, status=status.HTTP_201_CREATED)        
+
 
 ###
 

@@ -12,6 +12,8 @@ class Organisation(models.Model):
     name = models.CharField(max_length=255)
     organisation_type = models.CharField(max_length=50, choices=ORGANISATION_TYPES)
     location = models.CharField(max_length=255)
+    public_key = models.TextField(blank=True, null=True, help_text="RSA public key, safe to share with other organisations")
+    private_key = models.TextField(blank=True, null=True, help_text="RSA private key, NEVER leaves this server's own database")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

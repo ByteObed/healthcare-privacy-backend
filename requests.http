@@ -1,21 +1,75 @@
-@baseUrl = http://127.0.0.1:8000
+### ============================================
+### HOSPITAL A — http://127.0.0.1:8000
+### ============================================
 
-### 1. Register Hospital A
-
-POST {{baseUrl}}/api/organisations/register/
+### Register Hospital A
+POST http://127.0.0.1:8000/api/organisations/register/
 Content-Type: application/json
 
 {
   "username": "hospitalA",
-  "password": "Test1234@#",
+  "password": "newpass456",
   "email": "hospitalA@example.com",
   "name": "Hospital A",
   "organisation_type": "hospital",
   "location": "Korle Bu"
 }
 
-### 2. Register Hospital B
-POST {{baseUrl}}/api/organisations/register/
+###
+
+### Login Hospital A
+POST http://127.0.0.1:8000/api/token/
+Content-Type: application/json
+
+{
+  "username": "hospitalA",
+  "password": "newpass456"
+}
+
+###
+
+@tokenA = PASTE_TOKEN_A_HERE
+
+### Add a patient under Hospital A
+POST http://127.0.0.1:8000/api/patients/
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2NzUyOTQ1LCJpYXQiOjE3ODY3NDkzNDUsImp0aSI6IjMyYmNjMjliZWRiOTRkMGU5ODE2NTRkMmViNTE1MDIxIiwidXNlcl9pZCI6IjExIn0.gcI7IXlw18LUshNJQhuXnfG3YcTT5WY1-Cvp0zWBF9Q
+
+{
+  "patient_id": "P001",
+  "name": "Kwame Asante",
+  "age": 45,
+  "gender": "M",
+  "phone_number": "0244123456",
+  "diagnosis": "Hypertension",
+  "medication": "Lisinopril"
+}
+
+### List Hospital A's patients
+GET http://127.0.0.1:8000/api/patients/
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2NzUyOTQ1LCJpYXQiOjE3ODY3NDkzNDUsImp0aSI6IjMyYmNjMjliZWRiOTRkMGU5ODE2NTRkMmViNTE1MDIxIiwidXNlcl9pZCI6IjExIn0.gcI7IXlw18LUshNJQhuXnfG3YcTT5WY1-Cvp0zWBF9Q
+### Check Hospital A's own public key
+GET http://127.0.0.1:8000/api/organisations/public-key/
+
+### Hospital A views its own patients with masking applied
+GET http://127.0.0.1:8000/api/privacy/masking/view/
+Authorization: Bearer {{tokenA}}
+
+### Hospital A applies masking and logs it for comparison
+POST http://127.0.0.1:8000/api/privacy/masking/apply/
+Authorization: Bearer {{tokenA}}
+
+### Hospital A views its own comparison dashboard
+GET http://127.0.0.1:8000/api/privacy/comparison/
+Authorization: Bearer {{tokenA}}
+
+
+### ============================================
+### HOSPITAL B — http://127.0.0.1:8001
+### ============================================
+
+### Register Hospital B
+POST http://127.0.0.1:8001/api/organisations/register/
 Content-Type: application/json
 
 {
@@ -27,19 +81,10 @@ Content-Type: application/json
   "location": "Komfo Anokye"
 }
 
-### 3. Login Hospital A
-# @name loginA
-POST {{baseUrl}}/api/token/
-Content-Type: application/json
+###
 
-{
-  "username": "hospitalA",
-  "password": "Test1234@#"
-}
-
-### 4. Login Hospital B
-# @name loginB
-POST {{baseUrl}}/api/token/
+### Login Hospital B
+POST http://127.0.0.1:8001/api/token/
 Content-Type: application/json
 
 {
@@ -47,155 +92,155 @@ Content-Type: application/json
   "password": "testpass123"
 }
 
-### 5. Refresh Hospital A's token (replace REFRESH_TOKEN_A manually)
-POST {{baseUrl}}/api/token/refresh/
+###
+
+@tokenB = PASTE_TOKEN_B_HERE
+
+### Check Hospital B's own public key
+GET http://127.0.0.1:8001/api/organisations/public-key/
+
+### List Hospital B's patients
+GET http://127.0.0.1:8001/api/patients/
+Authorization: Bearer {{tokenB}}
+
+
+### ============================================
+### HOSPITAL C — http://127.0.0.1:8002
+### ============================================
+
+### Register Hospital C
+POST http://127.0.0.1:8002/api/organisations/register/
 Content-Type: application/json
 
 {
-  "refresh": "REFRESH_TOKEN_A"
+  "username": "hospitalC",
+  "password": "testpass123",
+  "email": "hospitalC@example.com",
+  "name": "Hospital C",
+  "organisation_type": "hospital",
+  "location": "Tamale Teaching Hospital"
 }
 
-### 6. Create a patient under Hospital A
-@tokenA = PASTE_ACCESS_TOKEN_A_HERE
+###
 
-POST {{baseUrl}}/api/patients/
+### Login Hospital C
+POST http://127.0.0.1:8002/api/token/
 Content-Type: application/json
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMDYzNTkzLCJpYXQiOjE3ODIwNTk5OTMsImp0aSI6IjE3OTUwNGY2MWJlZTRhOGE4NDdiZWFlMjc3MDkwNmEzIiwidXNlcl9pZCI6IjIifQ.GrWEwSsWXy3M_7qfdkhLMkz49bz_u0OuATBU7Gf3tR0
 
 {
-  "patient_id": "P002",
-  "name": "Kojo Ofoe",
-  "age": 40,
-  "gender": "M",
-  "diagnosis": "Hypertension",
-  "medication": "Lisinopril"
+  "username": "hospitalC",
+  "password": "testpass123"
 }
 
-### 7. List Hospital A's patients
-GET {{baseUrl}}/api/patients/
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMDY2NDk5LCJpYXQiOjE3ODIwNjI4OTksImp0aSI6IjcwOThlODdhNjQ4YTRhNjU4OTk0NTQxYTY1YzE1NDlmIiwidXNlcl9pZCI6IjIifQ.v3BE2vnF1NchC3liHD-bBcH9vZyCAg0kKvXT0MldkOw
-### 8. Send encrypted record from Hospital A to Hospital B
-POST {{baseUrl}}/api/privacy/encryption/send/
+###
+
+@tokenC = PASTE_TOKEN_C_HERE
+
+### Check Hospital C's own public key
+GET http://127.0.0.1:8002/api/organisations/public-key/
+
+
+### ============================================
+### CROSS-SERVER: HYBRID ENCRYPTION (A -> B)
+### ============================================
+
+### Hospital A sends encrypted patient record to Hospital B
+POST http://127.0.0.1:8000/api/privacy/encryption/send/
 Content-Type: application/json
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMDY2NDk5LCJpYXQiOjE3ODIwNjI4OTksImp0aSI6IjcwOThlODdhNjQ4YTRhNjU4OTk0NTQxYTY1YzE1NDlmIiwidXNlcl9pZCI6IjIifQ.v3BE2vnF1NchC3liHD-bBcH9vZyCAg0kKvXT0MldkOw
+Authorization: Bearer {{tokenA}}
 
 {
-  "patient_id": "P002",
-  "receiver_id": 2
+  "patient_id": "P001",
+  "receiver_url": "http://127.0.0.1:8001"
 }
 
-### 9. Hospital B views received encrypted records
-@tokenB = PASTE_ACCESS_TOKEN_B_HERE
+### Hospital B views received encrypted records
+GET http://127.0.0.1:8001/api/privacy/encryption/received/
+Authorization: Bearer {{tokenB}}
 
-GET {{baseUrl}}/api/privacy/encryption/received/
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMDY0MjkwLCJpYXQiOjE3ODIwNjA2OTAsImp0aSI6ImEyYWFhMDk1NjEzMjRhOTBiNWZlNmI1ZTdiMWE3ZDUwIiwidXNlcl9pZCI6IjMifQ.yaBsxfLB5YA1loCpPUi4Ji3Va531uefGWiXJV6q2dqQ
+### Hospital B decrypts a received record (replace <id>)
+POST http://127.0.0.1:8001/api/privacy/encryption/1/decrypt/
+Authorization: Bearer {{tokenB}}
 
-### 10. Hospital B retrieves the encryption key (one-time use)
-GET {{baseUrl}}/api/privacy/encryption/3/key/
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMDY4NTI4LCJpYXQiOjE3ODIwNjQ5MjgsImp0aSI6ImExOWJhOWFhZmQ0YTQ3NmZhMTk0YTM4ZTQxMzE2ZGZmIiwidXNlcl9pZCI6IjMifQ.QOFFQ_fRp5WY6-kzOy1s-j3zPsFXTMFxO45uz3NKQsA
-### 11. Hospital B decrypts the record using the retrieved key
-POST {{baseUrl}}/api/privacy/encryption/3/decrypt/
+### Confirm the decrypted patient now exists in Hospital B's own patient list
+GET http://127.0.0.1:8001/api/patients/
+Authorization: Bearer {{tokenB}}
+
+
+### ============================================
+### CROSS-SERVER: ANONYMIZATION (A -> B)
+### ============================================
+
+### Hospital A exports anonymized dataset to Hospital B
+POST http://127.0.0.1:8000/api/privacy/anonymization/export/
 Content-Type: application/json
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMDY4MDAyLCJpYXQiOjE3ODIwNjQ0MDIsImp0aSI6IjNlYjk3Mzk2YzM4MzRhNTFhNWZmMDAyZmQ1ZTQ3YjVkIiwidXNlcl9pZCI6IjMifQ.Fs8T015wa_nzR0gTjUlAZlkrOlK9isCkbGTT5SksaIk
-
-### 11. Hospital B decrypts the record using the retrieved key
-POST {{baseUrl}}/api/privacy/encryption/3/decrypt/
-Content-Type: application/json
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMDY4NTI4LCJpYXQiOjE3ODIwNjQ5MjgsImp0aSI6ImExOWJhOWFhZmQ0YTQ3NmZhMTk0YTM4ZTQxMzE2ZGZmIiwidXNlcl9pZCI6IjMifQ.QOFFQ_fRp5WY6-kzOy1s-j3zPsFXTMFxO45uz3NKQsA
-
+Authorization: Bearer {{tokenA}}
 
 {
-  "encryption_key": "UMiY15l_YebfVoEzPPOmntESCS3Kbqdo1ALvEhT3Qjo="
-}
-### List all received encrypted records for Hospital B
-GET {{baseUrl}}/api/privacy/encryption/received/
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMDY0MjkwLCJpYXQiOjE3ODIwNjA2OTAsImp0aSI6ImEyYWFhMDk1NjEzMjRhOTBiNWZlNmI1ZTdiMWE3ZDUwIiwidXNlcl9pZCI6IjMifQ.yaBsxfLB5YA1loCpPUi4Ji3Va531uefGWiXJV6q2dqQ
-
-#####
-
-### Create more patients under Hospital A (for anonymization testing)
-POST {{baseUrl}}/api/patients/
-Content-Type: application/json
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMDY5NzQ5LCJpYXQiOjE3ODIwNjYxNDksImp0aSI6IjI1ZDk4OTQ3NWM3MDRiYWE4NmE0MmVhNWRhMzU1MDY5IiwidXNlcl9pZCI6IjIifQ.b6yVQWjjT-5OWlY47MXqTmlyMWxLVU2FtQpK2GLqqYY
-
-{
-  "patient_id": "P003",
-  "name": "Ama Owusu",
-  "age": 38,
-  "gender": "F",
-  "diagnosis": "Hypertension",
-  "medication": "Amlodipine"
-}
-
-### Export anonymized dataset from Hospital A to Hospital B
-POST {{baseUrl}}/api/privacy/anonymization/export/
-Content-Type: application/json
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMDY5NzQ5LCJpYXQiOjE3ODIwNjYxNDksImp0aSI6IjI1ZDk4OTQ3NWM3MDRiYWE4NmE0MmVhNWRhMzU1MDY5IiwidXNlcl9pZCI6IjIifQ.b6yVQWjjT-5OWlY47MXqTmlyMWxLVU2FtQpK2GLqqYY
-
-{
-  "receiver_id": 2,
+  "receiver_url": "http://127.0.0.1:8001",
   "diagnosis_filter": "Hypertension"
 }
 
 ### Hospital B views received anonymized datasets
-GET {{baseUrl}}/api/privacy/anonymization/received/
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMDY5ODc3LCJpYXQiOjE3ODIwNjYyNzcsImp0aSI6ImQ1YmY5ODkzN2QzNDRmN2E4MWYyZDE5MTVhOWNlMzJhIiwidXNlcl9pZCI6IjMifQ.1DUY3R3cSX069bHO5QSZos38B55rE28xVqDp3aL1RpE
+GET http://127.0.0.1:8001/api/privacy/anonymization/received/
+Authorization: Bearer {{tokenB}}
 
-### Hospital A views their own patients with masking applied
-GET {{baseUrl}}/api/privacy/masking/view/
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMTYzOTI3LCJpYXQiOjE3ODIxNjAzMjcsImp0aSI6IjZlNWExMzcwNGJhZDQ4MTA4OWFjMDBjNjQ2ZDVhMmI5IiwidXNlcl9pZCI6IjIifQ.2J_6XZ-UUc5Hombu5dmYjukMJ05G6Xep95Nwj6sPVmU
 
-### Update Hospital A's patient phone numbers
-PATCH {{baseUrl}}/api/patients/3/
+### ============================================
+### CROSS-SERVER: DIFFERENTIAL PRIVACY (B queries A)
+### ============================================
+
+### Hospital B queries Hospital A's noisy count of Hypertension patients
+POST http://127.0.0.1:8001/api/privacy/differential-privacy/query/
 Content-Type: application/json
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMTYzOTI3LCJpYXQiOjE3ODIxNjAzMjcsImp0aSI6IjZlNWExMzcwNGJhZDQ4MTA4OWFjMDBjNjQ2ZDVhMmI5IiwidXNlcl9pZCI6IjIifQ.2J_6XZ-UUc5Hombu5dmYjukMJ05G6Xep95Nwj6sPVmU
+Authorization: Bearer {{tokenB}}
 
 {
-  "phone_number": "0244133458"
-}
-
-###
-### Hospital B queries Hospital A's count of Hypertension patients (with noise)
-POST {{baseUrl}}/api/privacy/differential-privacy/query/
-Content-Type: application/json
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMzE0MDAwLCJpYXQiOjE3ODIzMTA0MDAsImp0aSI6IjhkYTJlYTdkNzY4YzQ1YjZiOWE5MTE1M2EyYzU4OGE2IiwidXNlcl9pZCI6IjMifQ.RS-d3uwI1V7SISlsZVuyEPZ-leB_Tl9cOoUQ6Xxd7kw
-
-{
-  "target_organisation_id": 1,
+  "target_url": "http://127.0.0.1:8000",
   "query_type": "count_by_diagnosis",
   "diagnosis": "Hypertension"
 }
 
-### Hospital B queries Hospital A's average patient age (with noise)
-POST {{baseUrl}}/api/privacy/differential-privacy/query/
+### Hospital B queries Hospital A's noisy average patient age
+POST http://127.0.0.1:8001/api/privacy/differential-privacy/query/
 Content-Type: application/json
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMzE0MDAwLCJpYXQiOjE3ODIzMTA0MDAsImp0aSI6IjhkYTJlYTdkNzY4YzQ1YjZiOWE5MTE1M2EyYzU4OGE2IiwidXNlcl9pZCI6IjMifQ.RS-d3uwI1V7SISlsZVuyEPZ-leB_Tl9cOoUQ6Xxd7kw
+Authorization: Bearer {{tokenB}}
 
 {
-  "target_organisation_id": 1,
+  "target_url": "http://127.0.0.1:8000",
   "query_type": "average_age"
 }
 
-### Get currently logged-in organisation's details
-GET {{baseUrl}}/api/organisations/me/
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyNDAyNDQ2LCJpYXQiOjE3ODIzOTg4NDYsImp0aSI6IjE4MDZlNTcxNzU0ZTQxNWY5YjcyM2EwOTg2YThmYjNjIiwidXNlcl9pZCI6IjIifQ.qBQaooLDu1i1LQiPiugUirBOwdZqN56N0Y_5U4Xc6l4
 
+### ============================================
+### ACCOUNT: PROFILE + PASSWORD RESET (per hospital's own server)
+### ============================================
 
+### Get currently logged-in organisation's details (Hospital A example)
+GET http://127.0.0.1:8000/api/organisations/me/
+Authorization: Bearer {{tokenA}}
 
-### Request password reset
-POST {{baseUrl}}/api/organisations/password-reset/request/
+### Request password reset (Hospital A's server)
+POST http://127.0.0.1:8000/api/organisations/password-reset/request/
 Content-Type: application/json
 
 {
-  "email": "obedafatsaw@gmail.com"
+  "email": "hospitalA@example.com"
 }
 
-### Confirm password reset
-POST {{baseUrl}}/api/organisations/password-reset/confirm/
+### Confirm password reset (replace uid/token from the email link)
+POST http://127.0.0.1:8000/api/organisations/password-reset/confirm/
 Content-Type: application/json
 
 {
-  "uid": "Mg",
-  "token": "dbu30o-bd2fee7b3f23de6a311a03bb27aa6e38",
-  "new_password": "Test1234@#"
+  "uid": "PASTE_UID_HERE",
+  "token": "PASTE_TOKEN_HERE",
+  "new_password": "newpass456"
 }
+
+
+### ============================================
+### PATIENT IMPORT — Excel bulk upload (per hospital's own server)
+### Note: file upload needs Swagger UI (/api/docs/) for a proper file picker,
+### REST Client's multipart support is finicky. Use Swagger for this one.
+### ============================================

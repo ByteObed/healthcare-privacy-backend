@@ -113,3 +113,18 @@ class CurrentOrganisationView(APIView):
         if not hasattr(request.user, 'organisation'):
             return Response({"error": "This user has no linked organisation."}, status=403)
         return Response(OrganisationSerializer(request.user.organisation).data)    
+
+class PublicKeyView(APIView):
+    """Public endpoint — returns this server's organisation's RSA public key. No auth required, since public keys are meant to be shared openly."""
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        organisation = Organisation.objects.first()
+        if not organisation or not organisation.public_key:
+            return Response({"error": "No organisation with a public key registered on this server."}, status=404)
+
+        return Response({
+            "organisation_name": organisation.name,
+            "organisation_id": organisation.id,
+            "public_key": organisation.public_key,
+        })        

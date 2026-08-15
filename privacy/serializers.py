@@ -48,33 +48,20 @@ class PrivacyResultSummarySerializer(serializers.ModelSerializer):
 # --- Encryption / SharedEncryptedRecord ---
 
 class SendEncryptedRecordSerializer(serializers.Serializer):
-    """Used when Hospital A sends an encrypted record to Hospital B."""
+    """Sender's request: which local patient, and which receiver server to send to."""
     patient_id = serializers.CharField()
-    receiver_id = serializers.IntegerField()
+    receiver_url = serializers.URLField(help_text="e.g. http://127.0.0.1:8001")
 
 
 class SharedEncryptedRecordSerializer(serializers.ModelSerializer):
-    sender_name = serializers.SerializerMethodField()
-    receiver_name = serializers.SerializerMethodField()
-
     class Meta:
         model = SharedEncryptedRecord
         fields = [
-            'id', 'sender_name', 'receiver_name', 'patient_id_reference',
-            'encrypted_payload', 'key_retrieved', 'is_decrypted', 'decrypted_at',
-            'decrypted_payload', 'created_at'
+            'id', 'sender_name', 'sender_url', 'patient_id_reference',
+            'encrypted_payload', 'is_decrypted', 'signature_verified',
+            'decrypted_at', 'decrypted_payload', 'created_at'
         ]
         read_only_fields = fields
-
-    def get_sender_name(self, obj):
-        return obj.sender.name
-
-    def get_receiver_name(self, obj):
-        return obj.receiver.name
-
-class DecryptRecordSerializer(serializers.Serializer):
-    """Used when Hospital B submits the key to decrypt a record."""
-    encryption_key = serializers.CharField()
 
 
 # --- Anonymization ---
@@ -86,30 +73,18 @@ class AnonymizedRecordSerializer(serializers.ModelSerializer):
 
 
 class AnonymizedDatasetSerializer(serializers.ModelSerializer):
-    sender_name = serializers.SerializerMethodField()
-    receiver_name = serializers.SerializerMethodField()
     records = AnonymizedRecordSerializer(many=True, read_only=True)
 
     class Meta:
         model = AnonymizedDataset
-        fields = [
-            'id', 'sender_name', 'receiver_name', 'filter_criteria',
-            'record_count', 'created_at', 'records'
-        ]
-        read_only_fields = ['record_count', 'created_at']
-
-    def get_sender_name(self, obj):
-        return obj.sender.name
-
-    def get_receiver_name(self, obj):
-        return obj.receiver.name
+        fields = ['id', 'sender_name', 'sender_url', 'filter_criteria', 'record_count', 'created_at', 'records']
+        read_only_fields = fields
 
 
 class ExportAnonymizedDatasetSerializer(serializers.Serializer):
-    """Used when Hospital A exports an anonymized dataset to Hospital B."""
-    receiver_id = serializers.IntegerField()
+    """Used when Hospital A exports an anonymized dataset to another hospital's server."""
+    receiver_url = serializers.URLField(help_text="e.g. http://127.0.0.1:8001")
     diagnosis_filter = serializers.CharField(required=False, allow_blank=True)
-
 
 # --- Masking ---
 
@@ -124,7 +99,13 @@ class MaskedPatientSerializer(serializers.Serializer):
 # --- Differential Privacy ---
 
 class DifferentialPrivacyQuerySerializer(serializers.Serializer):
-    """Used when Hospital B queries Hospital A's aggregate stats."""
-    target_organisation_id = serializers.IntegerField()
+    """Used when Hospital B queries another hospital's server for an aggregate stat."""
+    target_url = serializers.URLField(help_text="e.g. http://127.0.0.1:8000")
+    query_type = serializers.ChoiceField(choices=['count_by_diagnosis', 'count_by_gender', 'average_age'])
+    diagnosis = serializers.CharField(required=False, allow_blank=True)
+
+
+class DifferentialPrivacyComputeSerializer(serializers.Serializer):
+    """Internal server-to-server request: compute this query locally and return the noisy result."""
     query_type = serializers.ChoiceField(choices=['count_by_diagnosis', 'count_by_gender', 'average_age'])
     diagnosis = serializers.CharField(required=False, allow_blank=True)

@@ -1,5 +1,6 @@
 
 import time
+import requests
 from rest_framework import generics, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -14,22 +15,26 @@ from .serializers import (
     PrivacyResultSummarySerializer,
     SendEncryptedRecordSerializer,
     SharedEncryptedRecordSerializer,
-    DecryptRecordSerializer,
     AnonymizedDatasetSerializer, 
     ExportAnonymizedDatasetSerializer,
     MaskedPatientSerializer,
-    DifferentialPrivacyQuerySerializer
+    DifferentialPrivacyQuerySerializer,
+    DifferentialPrivacyComputeSerializer,
 )
 from .utils import (
-    generate_fernet_key,
-    encrypt_patient_record, 
-    decrypt_patient_record, 
-    anonymize_patient_records, 
-    mask_name, mask_patient_id, 
-    mask_phone_number, 
-    apply_differential_privacy_count, 
-    apply_differential_privacy_mean
-
+    generate_session_key,
+    encrypt_data_with_session_key,
+    decrypt_data_with_session_key,
+    encrypt_session_key_with_public_key,
+    decrypt_session_key_with_private_key,
+    sign_data,
+    verify_signature,
+    anonymize_patient_records,
+    mask_name,
+    mask_patient_id,
+    mask_phone_number,
+    apply_differential_privacy_count,
+    apply_differential_privacy_mean,
 )
 
 class PrivacyResultListView(generics.ListAPIView):
@@ -57,26 +62,29 @@ class PrivacyComparisonView(generics.ListAPIView):
 # --- ENCRYPTION ---
 
 class SendEncryptedRecordView(APIView):
-    """Hospital A encrypts one patient record and sends it to Hospital B."""
-    permission_classes = [permissions.IsAuthenticated]
+    """SENDER side: encrypts a local patient record and POSTs it to the receiver's own server."""
+    permission_classes = [permissions.IsAuthenticated, IsOrganisationUser]
 
     def post(self, request):
         serializer = SendEncryptedRecordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        sender = request.user.organisation
+        sender_org = request.user.organisation
         patient_id = serializer.validated_data['patient_id']
-        receiver_id = serializer.validated_data['receiver_id']
+        receiver_url = serializer.validated_data['receiver_url'].rstrip('/')
 
         try:
-            patient = Patient.objects.get(patient_id=patient_id, organisation=sender)
+            patient = Patient.objects.get(patient_id=patient_id, organisation=sender_org)
         except Patient.DoesNotExist:
-            return Response({"error": "Patient not found in your organisation."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": "Patient not found in your organisation."}, status=404)
 
         try:
-            receiver = Organisation.objects.get(id=receiver_id)
-        except Organisation.DoesNotExist:
-            return Response({"error": "Receiving organisation not found."}, status=status.HTTP_404_NOT_FOUND)
+            key_response = requests.get(f"{receiver_url}/api/organisations/public-key/", timeout=5)
+            key_response.raise_for_status()
+            receiver_public_key = key_response.json()['public_key']
+            receiver_name = key_response.json()['organisation_name']
+        except Exception as e:
+            return Response({"error": f"Could not reach receiver server or fetch its public key: {str(e)}"}, status=502)
 
         start_time = time.time()
 
@@ -90,35 +98,42 @@ class SendEncryptedRecordView(APIView):
             "medication": patient.medication,
         }
 
-        key = generate_fernet_key()
-        encrypted_payload = encrypt_patient_record(patient_data, key)
+        session_key = generate_session_key()
+        encrypted_payload = encrypt_data_with_session_key(patient_data, session_key)
+        encrypted_session_key = encrypt_session_key_with_public_key(session_key, receiver_public_key)
+        signature = sign_data(patient_data, sender_org.private_key)
 
         processing_time = time.time() - start_time
 
-        shared_record = SharedEncryptedRecord.objects.create(
-            sender=sender,
-            receiver=receiver,
-            patient_id_reference=patient.patient_id,
-            encrypted_payload=encrypted_payload,
-            encryption_key=key,
-        )
+        payload = {
+            "sender_name": sender_org.name,
+            "sender_url": request.build_absolute_uri('/').rstrip('/'),
+            "patient_id_reference": patient.patient_id,
+            "encrypted_payload": encrypted_payload,
+            "encrypted_session_key": encrypted_session_key,
+            "signature": signature,
+        }
 
-        # Log this operation for the comparison dashboard
+        try:
+            send_response = requests.post(f"{receiver_url}/api/privacy/encryption/receive/", json=payload, timeout=5)
+            send_response.raise_for_status()
+        except Exception as e:
+            return Response({"error": f"Failed to deliver record to receiver: {str(e)}"}, status=502)
+
         PrivacyResult.objects.create(
-            organisation=sender,
+            organisation=sender_org,
             technique='encryption',
             original_record_count=1,
             processed_record_count=1,
             processing_time_seconds=processing_time,
-            utility_score=1.0,  # Encryption preserves 100% utility once decrypted
-            privacy_score=0.9,  # Strong privacy, but reversible if key is leaked
-            output_sample={"encrypted_preview": encrypted_payload[:60] + "..."},
+            utility_score=1.0,
+            privacy_score=0.95,
+            output_sample={"sent_to": receiver_name, "receiver_url": receiver_url},
         )
 
-        return Response(
-            SharedEncryptedRecordSerializer(shared_record).data,
-            status=status.HTTP_201_CREATED
-        )
+        return Response({"message": f"Encrypted record sent to {receiver_name} successfully."}, status=201)
+
+
 
 class SentEncryptedRecordsListView(generics.ListAPIView):
     """Hospital A views encrypted records it has sent to other organisations."""
@@ -130,64 +145,65 @@ class SentEncryptedRecordsListView(generics.ListAPIView):
 
 
 class ReceivedEncryptedRecordsListView(generics.ListAPIView):
-    """Hospital B views encrypted records sent to them, awaiting decryption."""
+    """This server's organisation views all encrypted records it has received."""
     serializer_class = SharedEncryptedRecordSerializer
     permission_classes = [permissions.IsAuthenticated, IsOrganisationUser]
+    queryset = SharedEncryptedRecord.objects.all()
 
-    def get_queryset(self):
-        return SharedEncryptedRecord.objects.filter(receiver=self.request.user.organisation)
-
+    
 
 class DecryptRecordView(APIView):
-    """Hospital B submits the key to decrypt a received record (server-side decryption)."""
+    """RECEIVER decrypts a record using ITS OWN private key (never left this server), then verifies the sender's signature."""
     permission_classes = [permissions.IsAuthenticated, IsOrganisationUser]
 
     def post(self, request, pk):
         try:
-            shared_record = SharedEncryptedRecord.objects.get(
-                pk=pk, receiver=request.user.organisation
-            )
+            record = SharedEncryptedRecord.objects.get(pk=pk)
         except SharedEncryptedRecord.DoesNotExist:
-            return Response({"error": "Record not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": "Record not found."}, status=404)
 
-        if shared_record.is_decrypted:
-            return Response(
-                {"message": "Already decrypted.", "data": shared_record.decrypted_payload},
-                status=status.HTTP_200_OK
-            )
+        if record.is_decrypted:
+            return Response({"message": "Already decrypted.", "data": record.decrypted_payload}, status=200)
 
-        serializer = DecryptRecordSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        submitted_key = serializer.validated_data['encryption_key']
-
-        if submitted_key != shared_record.encryption_key:
-            return Response({"error": "Incorrect decryption key."}, status=status.HTTP_400_BAD_REQUEST)
+        receiver_org = request.user.organisation
 
         try:
-            decrypted_data = decrypt_patient_record(shared_record.encrypted_payload, submitted_key)
+            session_key = decrypt_session_key_with_private_key(record.encrypted_session_key, receiver_org.private_key)
+            decrypted_data = decrypt_data_with_session_key(record.encrypted_payload, session_key)
+        except Exception as e:
+            return Response({"error": f"Decryption failed: {str(e)}"}, status=400)
+
+        signature_valid = False
+        try:
+            key_response = requests.get(f"{record.sender_url}/api/organisations/public-key/", timeout=5)
+            sender_public_key = key_response.json()['public_key']
+            signature_valid = verify_signature(decrypted_data, record.signature, sender_public_key)
         except Exception:
-            return Response({"error": "Decryption failed."}, status=status.HTTP_400_BAD_REQUEST)
+            signature_valid = False
 
         from django.utils import timezone
-        shared_record.is_decrypted = True
-        shared_record.decrypted_at = timezone.now()
-        shared_record.decrypted_payload = decrypted_data
-        shared_record.save()
+        record.is_decrypted = True
+        record.decrypted_at = timezone.now()
+        record.decrypted_payload = decrypted_data
+        record.signature_verified = signature_valid
+        record.save()
 
-        # Create the real Patient record under Hospital B now that data is decrypted
-        Patient.objects.create(
-            organisation=request.user.organisation,
+        Patient.objects.update_or_create(
+            organisation=receiver_org,
             patient_id=decrypted_data['patient_id'],
-            name=decrypted_data['name'],
-            age=decrypted_data['age'],
-            gender=decrypted_data['gender'],
-            phone_number=decrypted_data['phone_number'],
-            diagnosis=decrypted_data['diagnosis'],
-            medication=decrypted_data['medication'],
+            defaults={
+                'name': decrypted_data['name'],
+                'age': decrypted_data['age'],
+                'gender': decrypted_data['gender'],
+                'phone_number': decrypted_data.get('phone_number', '0000000000'),
+                'diagnosis': decrypted_data['diagnosis'],
+                'medication': decrypted_data['medication'],
+            }
         )
 
-        return Response(SharedEncryptedRecordSerializer(shared_record).data, status=status.HTTP_200_OK)
+        return Response(SharedEncryptedRecordSerializer(record).data, status=200)
 
+        
 class RegenerateEncryptionKeyView(APIView):
     """Sender regenerates a fresh key for a record whose key was retrieved but never used to decrypt."""
     permission_classes = [permissions.IsAuthenticated, IsOrganisationUser]
@@ -245,102 +261,113 @@ class RegenerateEncryptionKeyView(APIView):
 
 
 class ExportAnonymizedDatasetView(APIView):
-    """Hospital A exports a filtered, anonymized dataset to Hospital B."""
+    """SENDER side: filters, strips identity, and POSTs the anonymized dataset to the receiver's own server."""
     permission_classes = [permissions.IsAuthenticated, IsOrganisationUser]
 
     def post(self, request):
         serializer = ExportAnonymizedDatasetSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        sender = request.user.organisation
-        receiver_id = serializer.validated_data['receiver_id']
+        sender_org = request.user.organisation
+        receiver_url = serializer.validated_data['receiver_url'].rstrip('/')
         diagnosis_filter = serializer.validated_data.get('diagnosis_filter', '')
 
-        try:
-            receiver = Organisation.objects.get(id=receiver_id)
-        except Organisation.DoesNotExist:
-            return Response({"error": "Receiving organisation not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        patients_qs = Patient.objects.filter(organisation=sender)
+        patients_qs = Patient.objects.filter(organisation=sender_org)
         if diagnosis_filter:
             patients_qs = patients_qs.filter(diagnosis__iexact=diagnosis_filter)
 
         if not patients_qs.exists():
-            return Response({"error": "No matching patients found to export."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": "No matching patients found to export."}, status=404)
+
+        # Confirm the receiver server is reachable and get its name
+        try:
+            info_response = requests.get(f"{receiver_url}/api/organisations/public-key/", timeout=5)
+            info_response.raise_for_status()
+            receiver_name = info_response.json()['organisation_name']
+        except Exception as e:
+            return Response({"error": f"Could not reach receiver server: {str(e)}"}, status=502)
 
         start_time = time.time()
         anonymized_records = anonymize_patient_records(patients_qs)
         processing_time = time.time() - start_time
 
-        dataset = AnonymizedDataset.objects.create(
-            sender=sender,
-            receiver=receiver,
-            filter_criteria=f"diagnosis={diagnosis_filter}" if diagnosis_filter else "all",
-            record_count=len(anonymized_records),
-        )
+        payload = {
+            "sender_name": sender_org.name,
+            "sender_url": request.build_absolute_uri('/').rstrip('/'),
+            "filter_criteria": f"diagnosis={diagnosis_filter}" if diagnosis_filter else "all",
+            "records": anonymized_records,
+        }
 
-        for record in anonymized_records:
-            AnonymizedRecord.objects.create(dataset=dataset, **record)
+        try:
+            send_response = requests.post(f"{receiver_url}/api/privacy/anonymization/receive/", json=payload, timeout=5)
+            send_response.raise_for_status()
+        except Exception as e:
+            return Response({"error": f"Failed to deliver dataset to receiver: {str(e)}"}, status=502)
 
-        # Log for the comparison dashboard
         PrivacyResult.objects.create(
-            organisation=sender,
+            organisation=sender_org,
             technique='anonymization',
             original_record_count=patients_qs.count(),
             processed_record_count=len(anonymized_records),
             processing_time_seconds=processing_time,
-            utility_score=0.75,  # Some utility lost — exact age/identity gone, ranges/categories remain
-            privacy_score=0.85,  # Strong privacy, but theoretically vulnerable to re-identification attacks
-            output_sample={"sample": anonymized_records[:2]},
+            utility_score=0.75,
+            privacy_score=0.85,
+            output_sample={"sent_to": receiver_name, "sample": anonymized_records[:2]},
         )
 
-        return Response(AnonymizedDatasetSerializer(dataset).data, status=status.HTTP_201_CREATED)
+        return Response({"message": f"Anonymized dataset ({len(anonymized_records)} records) sent to {receiver_name}."}, status=201)
 
 
-class SentAnonymizedDatasetsListView(generics.ListAPIView):
-    """Hospital A views anonymized datasets it has sent to other organisations."""
-    serializer_class = AnonymizedDatasetSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOrganisationUser]
+class ReceiveAnonymizedDatasetView(APIView):
+    """RECEIVER side: accepts an incoming anonymized dataset from another server. No auth — server-to-server delivery."""
+    permission_classes = [permissions.AllowAny]
 
-    def get_queryset(self):
-        return AnonymizedDataset.objects.filter(sender=self.request.user.organisation)
-        
+    def post(self, request):
+        required = ['sender_name', 'sender_url', 'filter_criteria', 'records']
+        if not all(field in request.data for field in required):
+            return Response({"error": "Missing required fields."}, status=400)
+
+        dataset = AnonymizedDataset.objects.create(
+            sender_name=request.data['sender_name'],
+            sender_url=request.data['sender_url'],
+            filter_criteria=request.data['filter_criteria'],
+            record_count=len(request.data['records']),
+        )
+
+        for record in request.data['records']:
+            AnonymizedRecord.objects.create(dataset=dataset, **record)
+
+        return Response({"message": "Dataset received.", "id": dataset.id}, status=201)
+
 
 class ReceivedAnonymizedDatasetsListView(generics.ListAPIView):
-    """Hospital B views anonymized datasets received from other organisations."""
+    """This server's organisation views all anonymized datasets it has received."""
     serializer_class = AnonymizedDatasetSerializer
     permission_classes = [permissions.IsAuthenticated, IsOrganisationUser]
-
-    def get_queryset(self):
-        return AnonymizedDataset.objects.filter(receiver=self.request.user.organisation)
-
+    queryset = AnonymizedDataset.objects.all()
 
 
 ###       Add this view alongside your existing encryption views 
 
-class RetrieveEncryptionKeyView(APIView):
-    """Hospital B retrieves the decryption key through a separate, one-time-use endpoint."""
-    permission_classes = [permissions.IsAuthenticated, IsOrganisationUser]
 
-    def get(self, request, pk):
-        try:
-            shared_record = SharedEncryptedRecord.objects.get(
-                pk=pk, receiver=request.user.organisation
-            )
-        except SharedEncryptedRecord.DoesNotExist:
-            return Response({"error": "Record not found."}, status=status.HTTP_404_NOT_FOUND)
+class ReceiveEncryptedRecordView(APIView):
+    """RECEIVER side: accepts an incoming encrypted record from another server. No auth — this is a server-to-server delivery endpoint."""
+    permission_classes = [permissions.AllowAny]
 
-        if shared_record.key_retrieved:
-            return Response(
-                {"error": "Key has already been retrieved and is no longer available via this endpoint."},
-                status=status.HTTP_403_FORBIDDEN
-            )
+    def post(self, request):
+        required = ['sender_name', 'sender_url', 'patient_id_reference', 'encrypted_payload', 'encrypted_session_key', 'signature']
+        if not all(field in request.data for field in required):
+            return Response({"error": "Missing required fields."}, status=400)
 
-        shared_record.key_retrieved = True
-        shared_record.save()
-
-        return Response({"encryption_key": shared_record.encryption_key}, status=status.HTTP_200_OK)        
-
+        record = SharedEncryptedRecord.objects.create(
+            sender_name=request.data['sender_name'],
+            sender_url=request.data['sender_url'],
+            patient_id_reference=request.data['patient_id_reference'],
+            encrypted_payload=request.data['encrypted_payload'],
+            encrypted_session_key=request.data['encrypted_session_key'],
+            signature=request.data['signature'],
+        )
+        return Response({"message": "Record received.", "id": record.id}, status=201)
 
 # Masking
 
@@ -412,31 +439,63 @@ class ApplyMaskingLogView(APIView):
 ###
 
 class DifferentialPrivacyQueryView(APIView):
-    """Hospital B queries Hospital A's aggregate stats and receives a noisy result."""
+    """REQUESTER side: asks another hospital's server to compute a noisy aggregate."""
     permission_classes = [permissions.IsAuthenticated, IsOrganisationUser]
 
-    
     def post(self, request):
         serializer = DifferentialPrivacyQuerySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        target_organisation_id = serializer.validated_data['target_organisation_id']
+        target_url = serializer.validated_data['target_url'].rstrip('/')
         query_type = serializer.validated_data['query_type']
         diagnosis = serializer.validated_data.get('diagnosis', '')
 
+        payload = {"query_type": query_type, "diagnosis": diagnosis}
+
         try:
-            target_org = Organisation.objects.get(id=target_organisation_id)
-        except Organisation.DoesNotExist:
-            return Response({"error": "Target organisation not found."}, status=status.HTTP_404_NOT_FOUND)
+            compute_response = requests.post(f"{target_url}/api/privacy/differential-privacy/compute/", json=payload, timeout=5)
+            compute_response.raise_for_status()
+            result = compute_response.json()
+        except Exception as e:
+            return Response({"error": f"Could not reach target server: {str(e)}"}, status=502)
 
-        epsilon = 1.0  # Privacy budget used for this query
+        # Log this from the REQUESTER's side too
+        PrivacyResult.objects.create(
+            organisation=request.user.organisation,
+            technique='differential_privacy',
+            original_record_count=0,  # requester never sees the raw count, by design
+            processed_record_count=1,
+            processing_time_seconds=result.get('processing_time_seconds', 0),
+            utility_score=0.6,
+            privacy_score=0.95,
+            output_sample={"queried": target_url, "result": result},
+        )
 
+        return Response(result, status=200)
+
+
+class DifferentialPrivacyComputeView(APIView):
+    """RESPONDER side: computes the noisy aggregate using THIS server's own local data. No auth — server-to-server query, raw data never leaves this server."""
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = DifferentialPrivacyComputeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        query_type = serializer.validated_data['query_type']
+        diagnosis = serializer.validated_data.get('diagnosis', '')
+
+        organisation = Organisation.objects.first()
+        if not organisation:
+            return Response({"error": "No organisation registered on this server."}, status=404)
+
+        epsilon = 1.0
         start_time = time.time()
-        patients_qs = Patient.objects.filter(organisation=target_org)
+        patients_qs = Patient.objects.filter(organisation=organisation)
 
         if query_type == 'count_by_diagnosis':
             if not diagnosis:
-                return Response({"error": "diagnosis field is required for this query_type."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "diagnosis is required for this query_type."}, status=400)
             true_value = patients_qs.filter(diagnosis__iexact=diagnosis).count()
             noisy_value = apply_differential_privacy_count(true_value, epsilon=epsilon)
             result_label = f"Noisy count of patients with diagnosis '{diagnosis}'"
@@ -453,12 +512,13 @@ class DifferentialPrivacyQueryView(APIView):
             result_label = "Noisy average patient age"
 
         else:
-            return Response({"error": "Invalid query_type."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Invalid query_type."}, status=400)
 
         processing_time = time.time() - start_time
 
+        # Log this from the RESPONDER's side too — someone queried us
         PrivacyResult.objects.create(
-            organisation=request.user.organisation,
+            organisation=organisation,
             technique='differential_privacy',
             original_record_count=patients_qs.count(),
             processed_record_count=1,
@@ -469,10 +529,11 @@ class DifferentialPrivacyQueryView(APIView):
         )
 
         return Response({
-            "target_organisation": target_org.name,
+            "target_organisation": organisation.name,
             "query_type": query_type,
             "result_label": result_label,
             "noisy_result": noisy_value,
             "epsilon": epsilon,
+            "processing_time_seconds": processing_time,
             "note": f"This value contains statistical noise (Laplace mechanism, epsilon={epsilon}) and does not reveal exact record-level data.",
-        }, status=status.HTTP_200_OK)
+        }, status=200)

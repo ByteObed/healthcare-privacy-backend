@@ -3,8 +3,18 @@ from django.urls import path, include
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 
+from django.http import JsonResponse
+from django.conf import settings
+
+def whoami(request):
+    return JsonResponse({
+        "database_file": str(settings.DATABASES['default']['NAME']),
+        "org_instance_name": settings.ORG_INSTANCE_NAME,
+    })
+
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('whoami/', whoami),
 
     # JWT
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),

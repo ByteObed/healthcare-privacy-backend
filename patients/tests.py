@@ -44,12 +44,12 @@ class PatientPermissionTests(APITestCase):
     def test_hospital_a_can_see_own_patients(self):
         response = self.client.get('/api/patients/', **self.auth_header(self.token_a))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 1)
+        self.assertEqual(len(response.data), 1)
 
     def test_hospital_b_cannot_see_hospital_a_patients(self):
         response = self.client.get('/api/patients/', **self.auth_header(self.token_b))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 0)
+        self.assertEqual(len(response.data), 0)
 
     def test_hospital_b_cannot_access_hospital_a_patient_detail_directly(self):
         response = self.client.get(f'/api/patients/{self.patient_a.id}/', **self.auth_header(self.token_b))

@@ -1,8 +1,16 @@
-from rest_framework import generics, permissions
+
+from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from .models import Organisation
 from .serializers import OrganisationSerializer, RegisterOrganisationSerializer
+
+# Import from privacy app
+from privacy.models import PrivacyResult, AnonymizedDataset
+from privacy.serializers import AnonymizedDatasetSerializer
+
+# Import the Sent serializer from privacy app
+from privacy.serializers import SentAnonymizedDatasetSerializer  # ← ADD THIS
 
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
@@ -114,6 +122,7 @@ class CurrentOrganisationView(APIView):
             return Response({"error": "This user has no linked organisation."}, status=403)
         return Response(OrganisationSerializer(request.user.organisation).data)    
 
+
 class PublicKeyView(APIView):
     """Public endpoint — returns this server's organisation's RSA public key. No auth required, since public keys are meant to be shared openly."""
     permission_classes = [permissions.AllowAny]
@@ -127,4 +136,40 @@ class PublicKeyView(APIView):
             "organisation_name": organisation.name,
             "organisation_id": organisation.id,
             "public_key": organisation.public_key,
-        })        
+        })
+
+
+
+# ============ ANONYMIZATION VIEWS ============
+
+class ReceivedAnonymizedDatasetsView(generics.ListAPIView):
+    """Get all anonymized datasets received by the current hospital"""
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AnonymizedDatasetSerializer
+    
+    def get_queryset(self):
+        # Query AnonymizedDataset for received datasets
+        return AnonymizedDataset.objects.all().order_by('-created_at')
+
+
+class SentAnonymizedDatasetsView(generics.ListAPIView):
+    """Get all anonymized datasets sent by the current hospital"""
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = SentAnonymizedDatasetSerializer  # ← USE THIS SERIALIZER
+    
+    def get_queryset(self):
+        org = self.request.user.organisation
+        return PrivacyResult.objects.filter(
+            organisation=org,
+            technique='anonymization'
+        ).order_by('-created_at')
+
+
+class ExportAnonymizedDatasetView(APIView):
+    """Export an anonymized dataset to another hospital"""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        # Import and use the privacy app's export view
+        from privacy.views import ExportAnonymizedDatasetView as PrivacyExportView
+        return PrivacyExportView().post(request)

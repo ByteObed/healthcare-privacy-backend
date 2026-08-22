@@ -6,26 +6,6 @@ from cryptography.fernet import Fernet
 from diffprivlib.mechanisms import Laplace
 
 
-# def generate_fernet_key():
-#     """Generate a new Fernet key for one encryption operation."""
-#     return Fernet.generate_key().decode()
-
-
-# def encrypt_patient_record(patient_data: dict, key: str) -> str:
-#     """Encrypt a patient record dict into a Fernet ciphertext string."""
-#     fernet = Fernet(key.encode())
-#     json_bytes = json.dumps(patient_data).encode()
-#     encrypted_bytes = fernet.encrypt(json_bytes)
-#     return encrypted_bytes.decode()
-
-
-# def decrypt_patient_record(encrypted_payload: str, key: str) -> dict:
-#     """Decrypt a Fernet ciphertext string back into a patient record dict."""
-#     fernet = Fernet(key.encode())
-#     decrypted_bytes = fernet.decrypt(encrypted_payload.encode())
-#     return json.loads(decrypted_bytes.decode())
-
-
 def anonymize_patient_records(patients):
     """Convert a queryset of Patient objects into anonymized records using Pandas."""
     data = [{

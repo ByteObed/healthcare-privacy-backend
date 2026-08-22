@@ -3,10 +3,12 @@ from .views import (
     PrivacyResultListView,
     PrivacyComparisonView,
     SendEncryptedRecordView,
+    SentEncryptedRecordsListView,
     ReceiveEncryptedRecordView,
     ReceivedEncryptedRecordsListView,
     DecryptRecordView,
     ExportAnonymizedDatasetView,
+    SentAnonymizedDatasetsListView,
     ReceiveAnonymizedDatasetView,
     ReceivedAnonymizedDatasetsListView,
     MaskedPatientListView,
@@ -21,6 +23,7 @@ urlpatterns = [
 
     # Encryption
     path('encryption/send/', SendEncryptedRecordView.as_view(), name='send-encrypted-record'),
+    path('encryption/sent/', SentEncryptedRecordsListView.as_view(), name='sent-encrypted-records'),
     path('encryption/receive/', ReceiveEncryptedRecordView.as_view(), name='receive-encrypted-record'),
     path('encryption/received/', ReceivedEncryptedRecordsListView.as_view(), name='received-encrypted-records'),
     path('encryption/<int:pk>/decrypt/', DecryptRecordView.as_view(), name='decrypt-record'),
@@ -29,6 +32,7 @@ urlpatterns = [
     path('anonymization/export/', ExportAnonymizedDatasetView.as_view(), name='export-anonymized-dataset'),
     path('anonymization/receive/', ReceiveAnonymizedDatasetView.as_view(), name='receive-anonymized-dataset'),
     path('anonymization/received/', ReceivedAnonymizedDatasetsListView.as_view(), name='received-anonymized-datasets'),
+    path('anonymization/sent/', SentAnonymizedDatasetsListView.as_view(), name='sent-anonymized-datasets'),
 
     # Masking
     path('masking/view/', MaskedPatientListView.as_view(), name='masked-patient-list'),

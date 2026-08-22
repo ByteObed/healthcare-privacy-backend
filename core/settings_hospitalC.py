@@ -2,6 +2,7 @@ from .settings import *
 
 DB_NAME = 'hospitalC.sqlite3'
 ORG_INSTANCE_NAME = 'hospitalC'
+SERVER_URL = 'http://127.0.0.1:8002'
 
 DATABASES = {
     'default': {

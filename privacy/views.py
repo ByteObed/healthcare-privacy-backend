@@ -15,7 +15,9 @@ from .serializers import (
     PrivacyResultSummarySerializer,
     SendEncryptedRecordSerializer,
     SharedEncryptedRecordSerializer,
-    AnonymizedDatasetSerializer, 
+    SentEncryptedRecordSerializer,
+    AnonymizedDatasetSerializer,
+    SentAnonymizedDatasetSerializer,
     ExportAnonymizedDatasetSerializer,
     MaskedPatientSerializer,
     DifferentialPrivacyQuerySerializer,
@@ -136,12 +138,15 @@ class SendEncryptedRecordView(APIView):
 
 
 class SentEncryptedRecordsListView(generics.ListAPIView):
-    """Hospital A views encrypted records it has sent to other organisations."""
-    serializer_class = SharedEncryptedRecordSerializer
+    """This organisation views a log of encrypted records IT has sent to others."""
+    serializer_class = SentEncryptedRecordSerializer
     permission_classes = [permissions.IsAuthenticated, IsOrganisationUser]
 
     def get_queryset(self):
-        return SharedEncryptedRecord.objects.filter(sender=self.request.user.organisation)        
+        return PrivacyResult.objects.filter(
+            organisation=self.request.user.organisation,
+            technique='encryption'
+        ).order_by('-created_at')
 
 
 class ReceivedEncryptedRecordsListView(generics.ListAPIView):
@@ -149,6 +154,29 @@ class ReceivedEncryptedRecordsListView(generics.ListAPIView):
     serializer_class = SharedEncryptedRecordSerializer
     permission_classes = [permissions.IsAuthenticated, IsOrganisationUser]
     queryset = SharedEncryptedRecord.objects.all()
+
+
+###       Add this view alongside your existing encryption views 
+
+
+class ReceiveEncryptedRecordView(APIView):
+    """RECEIVER side: accepts an incoming encrypted record from another server. No auth — this is a server-to-server delivery endpoint."""
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        required = ['sender_name', 'sender_url', 'patient_id_reference', 'encrypted_payload', 'encrypted_session_key', 'signature']
+        if not all(field in request.data for field in required):
+            return Response({"error": "Missing required fields."}, status=400)
+
+        record = SharedEncryptedRecord.objects.create(
+            sender_name=request.data['sender_name'],
+            sender_url=request.data['sender_url'],
+            patient_id_reference=request.data['patient_id_reference'],
+            encrypted_payload=request.data['encrypted_payload'],
+            encrypted_session_key=request.data['encrypted_session_key'],
+            signature=request.data['signature'],
+        )
+        return Response({"message": "Record received.", "id": record.id}, status=201)
 
     
 
@@ -169,13 +197,22 @@ class DecryptRecordView(APIView):
 
         try:
             session_key = decrypt_session_key_with_private_key(record.encrypted_session_key, receiver_org.private_key)
+        except Exception as e:
+            return Response({
+                "error": f"Could not decrypt the session key — this record may use an incompatible or outdated encryption format. Details: {str(e)}"
+            }, status=400)
+
+        try:
             decrypted_data = decrypt_data_with_session_key(record.encrypted_payload, session_key)
         except Exception as e:
-            return Response({"error": f"Decryption failed: {str(e)}"}, status=400)
+            return Response({
+                "error": f"Session key decrypted, but the patient data payload could not be decrypted — it may be corrupted or in an outdated format. Details: {str(e)}"
+            }, status=400)
 
         signature_valid = False
         try:
             key_response = requests.get(f"{record.sender_url}/api/organisations/public-key/", timeout=5)
+            key_response.raise_for_status()
             sender_public_key = key_response.json()['public_key']
             signature_valid = verify_signature(decrypted_data, record.signature, sender_public_key)
         except Exception:
@@ -202,59 +239,7 @@ class DecryptRecordView(APIView):
         )
 
         return Response(SharedEncryptedRecordSerializer(record).data, status=200)
-
         
-class RegenerateEncryptionKeyView(APIView):
-    """Sender regenerates a fresh key for a record whose key was retrieved but never used to decrypt."""
-    permission_classes = [permissions.IsAuthenticated, IsOrganisationUser]
-
-    def post(self, request, pk):
-        try:
-            shared_record = SharedEncryptedRecord.objects.get(
-                pk=pk, sender=request.user.organisation
-            )
-        except SharedEncryptedRecord.DoesNotExist:
-            return Response({"error": "Record not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        if shared_record.is_decrypted:
-            return Response(
-                {"error": "This record has already been decrypted."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            patient = Patient.objects.get(
-                patient_id=shared_record.patient_id_reference,
-                organisation=request.user.organisation
-            )
-        except Patient.DoesNotExist:
-            return Response(
-                {"error": "Original patient record no longer exists."},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        patient_data = {
-            "patient_id": patient.patient_id,
-            "name": patient.name,
-            "age": patient.age,
-            "gender": patient.gender,
-            "phone_number": patient.phone_number,
-            "diagnosis": patient.diagnosis,
-            "medication": patient.medication,
-        }
-
-        new_key = generate_fernet_key()
-        new_encrypted_payload = encrypt_patient_record(patient_data, new_key)
-
-        shared_record.encrypted_payload = new_encrypted_payload
-        shared_record.encryption_key = new_key
-        shared_record.key_retrieved = False
-        shared_record.save()
-
-        return Response(
-            SharedEncryptedRecordSerializer(shared_record).data,
-            status=status.HTTP_200_OK
-        )        
 
 
 # --- ANONYMIZATION, MASKING, DIFFERENTIAL PRIVACY (placeholders, built next) ---
@@ -312,7 +297,7 @@ class ExportAnonymizedDatasetView(APIView):
             processing_time_seconds=processing_time,
             utility_score=0.75,
             privacy_score=0.85,
-            output_sample={"sent_to": receiver_name, "sample": anonymized_records[:2]},
+            output_sample={"sent_to": receiver_name, "records": anonymized_records},
         )
 
         return Response({"message": f"Anonymized dataset ({len(anonymized_records)} records) sent to {receiver_name}."}, status=201)
@@ -347,27 +332,17 @@ class ReceivedAnonymizedDatasetsListView(generics.ListAPIView):
     queryset = AnonymizedDataset.objects.all()
 
 
-###       Add this view alongside your existing encryption views 
+class SentAnonymizedDatasetsListView(generics.ListAPIView):
+    """This organisation views a log of anonymized datasets IT has sent to others."""
+    serializer_class = SentAnonymizedDatasetSerializer
+    permission_classes = [permissions.IsAuthenticated, IsOrganisationUser]
 
+    def get_queryset(self):
+        return PrivacyResult.objects.filter(
+            organisation=self.request.user.organisation,
+            technique='anonymization'
+        ).order_by('-created_at')
 
-class ReceiveEncryptedRecordView(APIView):
-    """RECEIVER side: accepts an incoming encrypted record from another server. No auth — this is a server-to-server delivery endpoint."""
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request):
-        required = ['sender_name', 'sender_url', 'patient_id_reference', 'encrypted_payload', 'encrypted_session_key', 'signature']
-        if not all(field in request.data for field in required):
-            return Response({"error": "Missing required fields."}, status=400)
-
-        record = SharedEncryptedRecord.objects.create(
-            sender_name=request.data['sender_name'],
-            sender_url=request.data['sender_url'],
-            patient_id_reference=request.data['patient_id_reference'],
-            encrypted_payload=request.data['encrypted_payload'],
-            encrypted_session_key=request.data['encrypted_session_key'],
-            signature=request.data['signature'],
-        )
-        return Response({"message": "Record received.", "id": record.id}, status=201)
 
 # Masking
 
@@ -454,10 +429,21 @@ class DifferentialPrivacyQueryView(APIView):
 
         try:
             compute_response = requests.post(f"{target_url}/api/privacy/differential-privacy/compute/", json=payload, timeout=5)
-            compute_response.raise_for_status()
-            result = compute_response.json()
         except Exception as e:
             return Response({"error": f"Could not reach target server: {str(e)}"}, status=502)
+
+        # ✅ FIXED: Check status and surface the target server's actual error
+        if compute_response.status_code != 200:
+            try:
+                detail = compute_response.json()
+            except ValueError:
+                detail = compute_response.text
+            return Response(
+                {"error": "Target server rejected the query.", "target_response": detail},
+                status=502
+            )
+
+        result = compute_response.json()
 
         # Log this from the REQUESTER's side too
         PrivacyResult.objects.create(

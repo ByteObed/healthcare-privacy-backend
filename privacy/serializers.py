@@ -30,7 +30,6 @@ class PrivacyResultSerializer(serializers.ModelSerializer):
 
 
 class PrivacyResultSummarySerializer(serializers.ModelSerializer):
-    """Lightweight serializer for dashboard/comparison views"""
     technique_display = serializers.SerializerMethodField()
 
     class Meta:
@@ -45,10 +44,9 @@ class PrivacyResultSummarySerializer(serializers.ModelSerializer):
         return obj.get_technique_display()
 
 
-# --- Encryption / SharedEncryptedRecord ---
+# --- Encryption ---
 
 class SendEncryptedRecordSerializer(serializers.Serializer):
-    """Sender's request: which local patient, and which receiver server to send to."""
     patient_id = serializers.CharField()
     receiver_url = serializers.URLField(help_text="e.g. http://127.0.0.1:8001")
 
@@ -62,6 +60,17 @@ class SharedEncryptedRecordSerializer(serializers.ModelSerializer):
             'decrypted_at', 'decrypted_payload', 'created_at'
         ]
         read_only_fields = fields
+
+
+class SentEncryptedRecordSerializer(serializers.ModelSerializer):
+    sent_to = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PrivacyResult
+        fields = ['id', 'sent_to', 'processing_time_seconds', 'created_at']
+
+    def get_sent_to(self, obj):
+        return obj.output_sample.get('sent_to') if obj.output_sample else None
 
 
 # --- Anonymization ---
@@ -82,14 +91,30 @@ class AnonymizedDatasetSerializer(serializers.ModelSerializer):
 
 
 class ExportAnonymizedDatasetSerializer(serializers.Serializer):
-    """Used when Hospital A exports an anonymized dataset to another hospital's server."""
     receiver_url = serializers.URLField(help_text="e.g. http://127.0.0.1:8001")
     diagnosis_filter = serializers.CharField(required=False, allow_blank=True)
+
+
+# privacy/serializers.py
+
+class SentAnonymizedDatasetSerializer(serializers.ModelSerializer):
+    sent_to = serializers.SerializerMethodField()
+    records = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PrivacyResult  # ← MUST BE PrivacyResult, not AnonymizedDataset
+        fields = ['id', 'sent_to', 'original_record_count', 'processed_record_count', 'processing_time_seconds', 'records', 'created_at']
+
+    def get_sent_to(self, obj):
+        return obj.output_sample.get('sent_to') if obj.output_sample else None
+
+    def get_records(self, obj):
+        return obj.output_sample.get('records', []) if obj.output_sample else []
+
 
 # --- Masking ---
 
 class MaskedPatientSerializer(serializers.Serializer):
-    """Used for masked display view — not tied to a model, transformation only."""
     patient_id = serializers.CharField()
     name = serializers.CharField()
     diagnosis = serializers.CharField()
@@ -99,13 +124,11 @@ class MaskedPatientSerializer(serializers.Serializer):
 # --- Differential Privacy ---
 
 class DifferentialPrivacyQuerySerializer(serializers.Serializer):
-    """Used when Hospital B queries another hospital's server for an aggregate stat."""
     target_url = serializers.URLField(help_text="e.g. http://127.0.0.1:8000")
     query_type = serializers.ChoiceField(choices=['count_by_diagnosis', 'count_by_gender', 'average_age'])
     diagnosis = serializers.CharField(required=False, allow_blank=True)
 
 
 class DifferentialPrivacyComputeSerializer(serializers.Serializer):
-    """Internal server-to-server request: compute this query locally and return the noisy result."""
     query_type = serializers.ChoiceField(choices=['count_by_diagnosis', 'count_by_gender', 'average_age'])
     diagnosis = serializers.CharField(required=False, allow_blank=True)
